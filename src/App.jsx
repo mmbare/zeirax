@@ -191,7 +191,7 @@ export default function ZeiraxApp() {
       });
       const data = await response.json();
       if (data.error) throw new Error(data.error.message);
-      const text = data.content?.map(b => b.text || "").filter(Boolean).join("") || "";
+      const text = data.choices?.[0]?.message?.content || "";
       let mainText = text;
       let extractedSources = [];
       const srcMatch = text.match(/## Sources\n([\s\S]*?)(?:\n##|$)/i);
