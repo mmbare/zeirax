@@ -186,7 +186,7 @@ export default function ZeiraxApp() {
       if (isPro) body.tools = [{ type: "web_search_20250305", name: "web_search" }];
       const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
         method: "POST",
-        headers: { "Content-Type": "application/json", "x-api-key": import.meta.env.VITE_ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01", "anthropic-dangerous-direct-browser-access": "true" },
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${import.meta.env.VITE_GROQ_API_KEY}` },
         body: JSON.stringify(body),
       });
       const data = await response.json();
