@@ -187,7 +187,7 @@ export default function ZeiraxApp() {
       const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
         method: "POST",
         headers: { "Content-Type": "application/json", "Authorization": `Bearer ${import.meta.env.VITE_GROQ_API_KEY}` },
-        body: JSON.stringify({ model: "llama3-70b-8192", max_tokens: 1000, messages: [{ role: "system", content: isPro ? PRO_PROMPT : FREE_PROMPT }, { role: "user", content: trimmed }] }),
+        body: JSON.stringify({ model: "llama-3.3-70b-versatile", max_tokens: 1000, messages: [{ role: "system", content: isPro ? PRO_PROMPT : FREE_PROMPT }, { role: "user", content: trimmed }] }),
       });
       const data = await response.json();
       if (data.error) throw new Error(data.error.message);
