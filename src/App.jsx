@@ -198,7 +198,7 @@ export default function App() {
               ))}
             </div>
             <div style={{ padding: "14px 16px", borderTop: "1px solid #1a1a1a" }}>
-              <div style={{ fontSize: "11px", fontWeight: "600", color: "#1e1e1e", textAlign: "center" }}>ZEIRAX · AI RESEARCH ENGINE</div>
+              <div style={{ fontSize: "11px", fontWeight: "600", color: "#1e1e1e", textAlign: "center" }}>ZEIRAX · Your personal AI mentor. Ask me anything.</div>
             </div>
           </div>
         </>
@@ -262,7 +262,7 @@ export default function App() {
             <div style={{ fontSize: "24px", fontWeight: "800", color: "#fff", textAlign: "center", marginBottom: "4px", letterSpacing: "-.3px" }}>
               Welcome, <span style={{ background: "linear-gradient(90deg,#00ff88,#00ccff)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>Moe</span> 👋
             </div>
-            <div style={{ fontSize: "14px", fontWeight: "500", color: "#3a3a3a", textAlign: "center", marginBottom: "28px" }}>What do you want to research today?</div>
+            <div style={{ fontSize: "14px", fontWeight: "500", color: "#3a3a3a", textAlign: "center", marginBottom: "28px" }}>What can I help you with today?</div>
             <div style={{ display: "flex", flexWrap: "wrap", gap: "8px", justifyContent: "center" }}>
               {CHIPS.map((c, i) => (
                 <button key={i} className="chip" onClick={() => ask(c)} style={{ background: "#1a1a1a", border: "1px solid #222", color: "#888", fontSize: "13px", fontWeight: "500", padding: "9px 16px", borderRadius: "20px", cursor: "pointer", fontFamily: "'Inter'", transition: "all .15s" }}>{c}</button>
