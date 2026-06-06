@@ -1,363 +1,367 @@
 import { useState, useRef, useEffect } from "react";
 
-const FREE_PROMPT = `You are Zeirax, an elite AI research assistant. Your purpose is to help users conduct deep, structured research on any topic.
+const GROQ_KEY = import.meta.env.VITE_GROQ_API_KEY;
 
-When given a research query:
-1. Provide a clear, well-structured research breakdown
-2. Cover key facts, context, history, current state, and future outlook
-3. Highlight multiple perspectives or schools of thought
-4. Surface non-obvious insights and counterintuitive findings
-5. End with a "Key Takeaways" section with 3–5 bullet points
+const SYSTEM = `You are Zeirax, an elite AI research assistant. When given any question or topic:
+1. Give a thorough, well-structured response using ## for main sections
+2. Use bullet points with - for lists
+3. Bold key terms with **term**
+4. Cover overview, key facts, analysis, and takeaways
+5. End with ## Key Takeaways with 3-5 bullet points
+Be authoritative, precise, and genuinely insightful. Never give shallow answers.`;
 
-Format your response with ## headers. Be thorough but scannable. Avoid filler.
-Tone: authoritative, precise, and intellectually engaging.`;
-
-const PRO_PROMPT = `You are Zeirax Pro, an elite AI research assistant with access to real-time web search.
-
-When given a research query:
-1. Use web search to find current, accurate, and cited information
-2. Structure your response with clear ## sections
-3. After EVERY factual claim, include an inline citation like [Source: Publication Name, Year]
-4. Cover: Overview, Key Facts, Current Developments, Expert Perspectives, Controversies/Debates, Future Outlook
-5. End with "Key Takeaways" (3–5 bullets) and a "## Sources" section listing all cited sources as a numbered list with full names
-6. Prioritize recency — note when information was last updated
-
-Be extremely thorough. This is Pro mode — users expect depth, breadth, and verified sources.
-Format source list as:
-## Sources
-1. Source Name — brief description
-2. Source Name — brief description`;
-
-const SUGGESTED = [
-  "The geopolitics of rare earth minerals",
-  "How memory consolidation works during sleep",
-  "History and future of nuclear fusion energy",
-  "The economics of attention in the social media age",
-  "Quantum computing: where are we really?",
-  "CRISPR gene editing: current state 2025",
+const CHIPS = [
+  "How does AI actually work?",
+  "Build wealth at 19",
+  "F1 racing history",
+  "Grow on social media fast",
+  "Best trading strategies",
+  "What is quantum computing?",
 ];
 
-function parseMarkdown(text) {
+function renderMd(text) {
   const lines = text.split("\n");
-  let html = "";
-  let inUl = false;
-  for (let line of lines) {
-    if (line.startsWith("## ")) {
-      if (inUl) { html += "</ul>"; inUl = false; }
-      html += `<h2>${line.slice(3)}</h2>`;
-    } else if (line.startsWith("### ")) {
-      if (inUl) { html += "</ul>"; inUl = false; }
-      html += `<h3>${line.slice(4)}</h3>`;
-    } else if (line.startsWith("- ") || line.startsWith("* ")) {
-      if (!inUl) { html += "<ul>"; inUl = true; }
-      html += `<li>${formatInline(line.slice(2))}</li>`;
-    } else if (/^\d+\. /.test(line)) {
-      if (inUl) { html += "</ul>"; inUl = false; }
-      html += `<div class="source-item">${formatInline(line)}</div>`;
-    } else if (line.trim() === "") {
-      if (inUl) { html += "</ul>"; inUl = false; }
-      html += "<br/>";
+  let html = "", ul = false;
+  for (let l of lines) {
+    if (l.startsWith("## ")) {
+      if (ul) { html += "</ul>"; ul = false; }
+      html += `<h2>${l.slice(3)}</h2>`;
+    } else if (l.startsWith("### ")) {
+      if (ul) { html += "</ul>"; ul = false; }
+      html += `<h3>${l.slice(4)}</h3>`;
+    } else if (l.startsWith("- ") || l.startsWith("* ")) {
+      if (!ul) { html += "<ul>"; ul = true; }
+      html += `<li>${l.slice(2).replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")}</li>`;
+    } else if (l.trim() === "") {
+      if (ul) { html += "</ul>"; ul = false; }
     } else {
-      if (inUl) { html += "</ul>"; inUl = false; }
-      html += `<p>${formatInline(line)}</p>`;
+      if (ul) { html += "</ul>"; ul = false; }
+      html += `<p>${l.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>").replace(/\*(.+?)\*/g, "<em>$1</em>")}</p>`;
     }
   }
-  if (inUl) html += "</ul>";
+  if (ul) html += "</ul>";
   return html;
 }
 
-function formatInline(text) {
-  return text
-    .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
-    .replace(/\*(.+?)\*/g, "<em>$1</em>")
-    .replace(/\[Source: ([^\]]+)\]/g, '<span class="cite">[$1]</span>');
-}
-
-function LandingPage({ onEnter }) {
-  const [hovered, setHovered] = useState(null);
-  const features = [
-    { icon: "◈", title: "Deep Research", desc: "Multi-layered analysis covering facts, history, context, and future outlook on any topic." },
-    { icon: "◉", title: "Pro Web Search", desc: "Real-time web search with verified citations and live source references — not just training data." },
-    { icon: "◫", title: "Session History", desc: "Every research session saved locally so you can revisit and build on past work." },
-    { icon: "◬", title: "Export Ready", desc: "Copy any research report instantly to use in your writing, studies, or work." },
-  ];
-  return (
-    <div style={{ minHeight: "100vh", background: "#080a0f", fontFamily: "'DM Mono', 'Courier New', monospace", color: "#e8e6e0", position: "relative", overflow: "hidden" }}>
-      <div style={{ position: "fixed", inset: 0, zIndex: 0, backgroundImage: `linear-gradient(rgba(0,255,170,0.025) 1px, transparent 1px), linear-gradient(90deg, rgba(0,255,170,0.025) 1px, transparent 1px)`, backgroundSize: "60px 60px", pointerEvents: "none" }} />
-      <div style={{ position: "fixed", top: "-300px", left: "50%", transform: "translateX(-50%)", width: "800px", height: "800px", background: "radial-gradient(circle, rgba(0,255,170,0.05) 0%, transparent 60%)", pointerEvents: "none", zIndex: 0 }} />
-      <div style={{ position: "relative", zIndex: 1, maxWidth: "960px", margin: "0 auto", padding: "0 24px 100px" }}>
-        <nav style={{ padding: "28px 0", display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: "1px solid #0d1520" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-            <div style={{ width: "28px", height: "28px", background: "linear-gradient(135deg, #00ffaa, #00ccff)", clipPath: "polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%)" }} />
-            <span style={{ fontSize: "18px", fontWeight: "700", letterSpacing: "0.2em", background: "linear-gradient(90deg, #00ffaa, #00ccff)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>ZEIRAX</span>
-          </div>
-          <button onClick={onEnter} style={{ background: "none", border: "1px solid #00ffaa33", color: "#00ffaa", padding: "8px 20px", fontSize: "10px", letterSpacing: "0.2em", cursor: "pointer", fontFamily: "inherit" }}>LAUNCH APP →</button>
-        </nav>
-        <div style={{ textAlign: "center", padding: "100px 0 80px" }}>
-          <div style={{ fontSize: "10px", color: "#00ffaa", letterSpacing: "0.4em", marginBottom: "24px", display: "flex", alignItems: "center", justifyContent: "center", gap: "10px" }}>
-            <div style={{ width: "30px", height: "1px", background: "#00ffaa" }} />AI RESEARCH ENGINE<div style={{ width: "30px", height: "1px", background: "#00ffaa" }} />
-          </div>
-          <h1 style={{ fontSize: "clamp(42px, 8vw, 84px)", fontWeight: "800", lineHeight: "1.05", fontFamily: "'Syne', Georgia, serif", margin: "0 0 32px" }}>
-            <span style={{ display: "block", color: "#e8e6e0" }}>Research anything.</span>
-            <span style={{ display: "block", background: "linear-gradient(90deg, #00ffaa, #00ccff)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>Know everything.</span>
-          </h1>
-          <p style={{ maxWidth: "540px", margin: "0 auto 48px", fontSize: "16px", lineHeight: "1.8", color: "#6b7a90" }}>Zeirax is an AI-powered deep research assistant that breaks down any topic with structured analysis, verified sources, and expert-level insight.</p>
-          <div style={{ display: "flex", gap: "14px", justifyContent: "center", flexWrap: "wrap" }}>
-            <button onClick={onEnter} style={{ background: "linear-gradient(135deg, #00ffaa, #00ccff)", border: "none", color: "#080a0f", padding: "14px 36px", fontSize: "12px", letterSpacing: "0.2em", fontWeight: "700", cursor: "pointer", fontFamily: "inherit" }}>START RESEARCHING →</button>
-            <button onClick={onEnter} style={{ background: "none", border: "1px solid #1e2a3a", color: "#6b7a90", padding: "14px 36px", fontSize: "12px", letterSpacing: "0.2em", cursor: "pointer", fontFamily: "inherit" }}>VIEW PRO MODE</button>
-          </div>
-        </div>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "1px", background: "#1a2030", marginBottom: "80px" }}>
-          {features.map((f, i) => (
-            <div key={i} onMouseEnter={() => setHovered(i)} onMouseLeave={() => setHovered(null)} style={{ background: hovered === i ? "#0d1520" : "#080a0f", padding: "32px 28px", transition: "background 0.2s" }}>
-              <div style={{ fontSize: "22px", marginBottom: "16px", color: "#00ffaa" }}>{f.icon}</div>
-              <div style={{ fontSize: "12px", letterSpacing: "0.15em", color: "#e8e6e0", marginBottom: "10px" }}>{f.title}</div>
-              <div style={{ fontSize: "12px", color: "#4a5568", lineHeight: "1.7" }}>{f.desc}</div>
-            </div>
-          ))}
-        </div>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1px", background: "#1a2030", maxWidth: "600px", margin: "0 auto 80px" }}>
-          {[{ name: "FREE", price: "0", color: "#4a5568", items: ["5 research queries/day", "AI knowledge base", "Session history", "Copy export"] },
-            { name: "PRO", price: "12", color: "#00ffaa", items: ["Unlimited queries", "Live web search", "Verified citations", "Source references", "Priority speed"] }
-          ].map((plan, i) => (
-            <div key={i} style={{ background: "#080a0f", padding: "32px 24px" }}>
-              <div style={{ fontSize: "10px", letterSpacing: "0.3em", color: plan.color, marginBottom: "8px" }}>{plan.name}</div>
-              <div style={{ fontSize: "28px", fontWeight: "700", color: "#e8e6e0", marginBottom: "4px", fontFamily: "'Syne', Georgia, serif" }}>${plan.price}<span style={{ fontSize: "12px", color: "#4a5568" }}>/mo</span></div>
-              <div style={{ margin: "20px 0", height: "1px", background: "#1a2030" }} />
-              {plan.items.map((item, j) => (
-                <div key={j} style={{ fontSize: "12px", color: "#6b7a90", padding: "5px 0", display: "flex", alignItems: "center", gap: "8px" }}>
-                  <span style={{ color: plan.color, fontSize: "10px" }}>✓</span> {item}
-                </div>
-              ))}
-              <button onClick={onEnter} style={{ marginTop: "20px", width: "100%", padding: "10px", background: i === 1 ? "linear-gradient(135deg, #00ffaa, #00ccff)" : "none", border: i === 0 ? "1px solid #1e2a3a" : "none", color: i === 1 ? "#080a0f" : "#6b7a90", fontSize: "10px", letterSpacing: "0.2em", cursor: "pointer", fontFamily: "inherit" }}>
-                {i === 1 ? "TRY PRO FREE" : "GET STARTED"}
-              </button>
-            </div>
-          ))}
-        </div>
-        <div style={{ textAlign: "center", padding: "60px 0", border: "1px solid #1e2a3a" }}>
-          <h2 style={{ fontFamily: "'Syne', Georgia, serif", fontSize: "32px", color: "#e8e6e0", margin: "0 0 16px" }}>Your research, upgraded.</h2>
-          <p style={{ color: "#4a5568", fontSize: "13px", margin: "0 0 32px" }}>No signup needed. Start researching immediately.</p>
-          <button onClick={onEnter} style={{ background: "linear-gradient(135deg, #00ffaa, #00ccff)", border: "none", color: "#080a0f", padding: "14px 40px", fontSize: "12px", letterSpacing: "0.2em", fontWeight: "700", cursor: "pointer", fontFamily: "inherit" }}>OPEN ZEIRAX →</button>
-        </div>
-      </div>
-      <div style={{ textAlign: "center", padding: "24px", fontSize: "9px", color: "#1e2a3a", letterSpacing: "0.2em" }}>ZEIRAX · FOUNDED BY MOE · 2026</div>
-      <style>{`@import url('https://fonts.googleapis.com/css2?family=Syne:wght@400;700;800&family=DM+Mono&display=swap');`}</style>
-    </div>
-  );
-}
-
-export default function ZeiraxApp() {
-  const [page, setPage] = useState("landing");
-  const [query, setQuery] = useState("");
-  const [result, setResult] = useState(null);
-  const [sources, setSources] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState(null);
-  const [history, setHistory] = useState([]);
-  const [activeTab, setActiveTab] = useState("research");
-  const [mode, setMode] = useState("free");
-  const textareaRef = useRef(null);
-  const resultRef = useRef(null);
+export default function App() {
+  const [msgs, setMsgs] = useState([]);
+  const [input, setInput] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [showPlus, setShowPlus] = useState(false);
+  const [showSidebar, setShowSidebar] = useState(false);
+  const [history, setHistory] = useState([
+    { id: 1, title: "How AI works", time: "Today" },
+    { id: 2, title: "F1 aerodynamics explained", time: "Today" },
+    { id: 3, title: "Trading strategies 2025", time: "Yesterday" },
+    { id: 4, title: "Quantum computing basics", time: "Yesterday" },
+    { id: 5, title: "Social media growth tips", time: "Last week" },
+  ]);
+  const bottomRef = useRef();
+  const taRef = useRef();
+  const camRef = useRef();
+  const imgRef = useRef();
 
   useEffect(() => {
-    if (textareaRef.current) {
-      textareaRef.current.style.height = "auto";
-      textareaRef.current.style.height = textareaRef.current.scrollHeight + "px";
-    }
-  }, [query]);
+    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [msgs, busy]);
 
-  const runResearch = async (q) => {
-    const trimmed = (q || query).trim();
-    if (!trimmed) return;
-    setLoading(true);
-    setError(null);
-    setResult(null);
-    setSources([]);
-    setActiveTab("research");
-    const isPro = mode === "pro";
+  const ask = async (text) => {
+    const t = (text || input).trim();
+    if (!t || busy) return;
+    setInput("");
+    setBusy(true);
+    setShowPlus(false);
+    const next = [...msgs, { r: "u", c: t, id: Date.now() }];
+    setMsgs(next);
+    setHistory(prev => [{ id: Date.now(), title: t.slice(0, 40), time: "Just now" }, ...prev.slice(0, 9)]);
     try {
-      const body = {
-        model: "claude-sonnet-4-20250514",
-        max_tokens: 1000,
-        system: isPro ? PRO_PROMPT : FREE_PROMPT,
-        messages: [{ role: "user", content: trimmed }],
-      };
-      if (isPro) body.tools = [{ type: "web_search_20250305", name: "web_search" }];
-      const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+      const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
         method: "POST",
-        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${import.meta.env.VITE_GROQ_API_KEY}` },
-        body: JSON.stringify({ model: "llama-3.3-70b-versatile", max_tokens: 1000, messages: [{ role: "system", content: isPro ? PRO_PROMPT : FREE_PROMPT }, { role: "user", content: trimmed }] }),
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${GROQ_KEY}`
+        },
+        body: JSON.stringify({
+          model: "llama-3.3-70b-versatile",
+          max_tokens: 1000,
+          messages: [
+            { role: "system", content: SYSTEM },
+            ...next.map(m => ({ role: m.r === "u" ? "user" : "assistant", content: m.c }))
+          ]
+        })
       });
-      const data = await response.json();
-      if (data.error) throw new Error(data.error.message);
-      const text = data.choices?.[0]?.message?.content || "";
-      let mainText = text;
-      let extractedSources = [];
-      const srcMatch = text.match(/## Sources\n([\s\S]*?)(?:\n##|$)/i);
-      if (srcMatch) {
-        const srcLines = srcMatch[1].trim().split("\n").filter(l => /^\d+\./.test(l));
-        extractedSources = srcLines.map(l => l.replace(/^\d+\.\s*/, ""));
-        mainText = text.replace(/## Sources[\s\S]*$/i, "").trim();
-      }
-      setResult(mainText);
-      setSources(extractedSources);
-      setHistory(prev => [{ query: trimmed, result: mainText, sources: extractedSources, mode: isPro ? "PRO" : "FREE", time: new Date() }, ...prev.slice(0, 9)]);
-      setTimeout(() => resultRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 100);
-    } catch (err) {
-      setError(err.message || "Research failed. Please try again.");
-    } finally {
-      setLoading(false);
+      const d = await res.json();
+      if (d.error) throw new Error(d.error.message);
+      setMsgs([...next, { r: "a", c: d.choices[0].message.content, id: Date.now() }]);
+    } catch (e) {
+      setMsgs([...next, { r: "e", c: e.message || "Something went wrong.", id: Date.now() }]);
     }
+    setBusy(false);
   };
 
-  const handleKey = (e) => {
-    if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) runResearch();
+  const handleImg = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const url = URL.createObjectURL(file);
+    setMsgs(prev => [...prev, { r: "img", c: url, id: Date.now() }]);
+    setShowPlus(false);
+    setTimeout(() => {
+      setMsgs(prev => [...prev, {
+        r: "a",
+        c: "I can see your image. In Zeirax Pro, I analyze images in detail — identifying objects, text, context, and providing deep research based on what I see.",
+        id: Date.now()
+      }]);
+    }, 1500);
   };
 
-  if (page === "landing") return <LandingPage onEnter={() => setPage("app")} />;
+  const copyText = (text) => navigator.clipboard?.writeText(text);
 
   return (
-    <div style={{ minHeight: "100vh", background: "#080a0f", fontFamily: "'DM Mono', 'Courier New', monospace", color: "#e8e6e0", position: "relative" }}>
+    <div style={{ height: "100dvh", background: "#0d0d0d", fontFamily: "'Inter', sans-serif", color: "#fff", display: "flex", flexDirection: "column", overflow: "hidden", position: "relative" }}>
       <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Syne:wght@400;700;800&family=DM+Mono&display=swap');
-        .res h2 { color: #00ffaa; font-size: 11px; letter-spacing: 0.25em; text-transform: uppercase; margin: 28px 0 10px; border-bottom: 1px solid #0d1520; padding-bottom: 6px; }
-        .res h3 { color: #00ccff; font-size: 12px; letter-spacing: 0.12em; margin: 18px 0 8px; }
-        .res ul { padding-left: 18px; margin: 8px 0; }
-        .res li { margin: 6px 0; color: #c8c4bc; line-height: 1.7; }
-        .res p { color: #b0aca4; line-height: 1.9; margin: 6px 0; }
-        .res strong { color: #e8e6e0; }
-        .res em { color: #8899aa; }
-        .res .cite { display: inline-block; background: #0a1a2a; border: 1px solid #00ccff33; color: #00ccff; font-size: 10px; padding: 1px 6px; margin-left: 4px; letter-spacing: 0.05em; vertical-align: middle; }
-        .res .source-item { color: #6b7a90; font-size: 12px; padding: 5px 0; border-bottom: 1px solid #0d1520; }
-        @keyframes fadeUp { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
-        @keyframes pulse { from { transform: scaleY(0.3); opacity: 0.2; } to { transform: scaleY(1); opacity: 0.9; } }
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Bebas+Neue&display=swap');
+        *{box-sizing:border-box;margin:0;padding:0;}
+        ::-webkit-scrollbar{width:3px;}
+        ::-webkit-scrollbar-thumb{background:#222;}
+        @keyframes fadeUp{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
+        @keyframes fadeIn{from{opacity:0}to{opacity:1}}
+        @keyframes slideRight{from{transform:translateX(-100%)}to{transform:translateX(0)}}
+        @keyframes glow{0%,100%{box-shadow:0 0 15px rgba(0,255,136,0.2)}50%{box-shadow:0 0 35px rgba(0,255,136,0.5)}}
+        @keyframes dot{0%,80%,100%{transform:scale(0.35);opacity:.15}40%{transform:scale(1);opacity:1}}
+        @keyframes popIn{from{opacity:0;transform:translateY(10px) scale(0.95)}to{opacity:1;transform:translateY(0) scale(1)}}
+        .msg{animation:fadeUp .3s cubic-bezier(.16,1,.3,1);}
+        .ai-text h2{font-size:13px;font-weight:700;color:#fff;margin:18px 0 8px;display:flex;align-items:center;gap:8px;text-transform:uppercase;letter-spacing:.05em;}
+        .ai-text h2:first-child{margin-top:0;}
+        .ai-text h2::before{content:'';display:block;width:3px;height:14px;background:linear-gradient(#00ff88,#00ccff);border-radius:2px;flex-shrink:0;}
+        .ai-text h3{font-size:15px;font-weight:600;color:#ddd;margin:14px 0 6px;}
+        .ai-text p{font-size:15px;font-weight:400;color:#aaa;line-height:1.85;margin:5px 0;}
+        .ai-text ul{list-style:none;padding:0;margin:8px 0;}
+        .ai-text li{font-size:15px;font-weight:400;color:#999;line-height:1.75;padding:4px 0 4px 20px;position:relative;}
+        .ai-text li::before{content:'•';position:absolute;left:0;color:#00ff88;font-weight:700;font-size:16px;line-height:1.5;}
+        .ai-text strong{color:#fff;font-weight:700;}
+        .ai-text em{color:#666;font-style:italic;}
+        .chip:active{transform:scale(0.96);}
+        .action-item:active{background:#1a1a1a;}
+        .hist-item:active{background:#1a1a1a;}
+        .u-bub:focus{border-color:#00ff8830!important;outline:none;}
+        textarea{-webkit-appearance:none;}
       `}</style>
-      <div style={{ position: "fixed", inset: 0, zIndex: 0, backgroundImage: `linear-gradient(rgba(0,255,170,0.02) 1px, transparent 1px), linear-gradient(90deg, rgba(0,255,170,0.02) 1px, transparent 1px)`, backgroundSize: "60px 60px", pointerEvents: "none" }} />
-      <div style={{ position: "relative", zIndex: 1, maxWidth: "880px", margin: "0 auto", padding: "0 24px 100px" }}>
-        <header style={{ padding: "36px 0 28px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: "16px" }}>
-            <button onClick={() => setPage("landing")} style={{ background: "none", border: "none", cursor: "pointer", display: "flex", alignItems: "center", gap: "10px", padding: 0 }}>
-              <div style={{ width: "30px", height: "30px", background: "linear-gradient(135deg, #00ffaa, #00ccff)", clipPath: "polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%)" }} />
-              <span style={{ fontSize: "22px", fontWeight: "700", letterSpacing: "0.2em", fontFamily: "'Syne', Georgia, serif", background: "linear-gradient(90deg, #00ffaa, #00ccff)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>ZEIRAX</span>
-            </button>
-            <div style={{ width: "1px", height: "20px", background: "#1e2a3a" }} />
-            <span style={{ fontSize: "9px", color: "#2d3748", letterSpacing: "0.2em" }}>RESEARCH ENGINE</span>
-          </div>
-          <div style={{ display: "flex", border: "1px solid #1e2a3a" }}>
-            {["free", "pro"].map(m => (
-              <button key={m} onClick={() => setMode(m)} style={{ background: mode === m ? (m === "pro" ? "linear-gradient(135deg, #00ffaa22, #00ccff22)" : "#0d1520") : "none", border: "none", cursor: "pointer", padding: "8px 18px", fontSize: "10px", letterSpacing: "0.2em", fontFamily: "inherit", color: mode === m ? (m === "pro" ? "#00ffaa" : "#e8e6e0") : "#4a5568", transition: "all 0.2s" }}>
-                {m === "pro" && <span style={{ fontSize: "8px" }}>⚡</span>} {m.toUpperCase()}
+
+      {showSidebar && (
+        <>
+          <div onClick={() => setShowSidebar(false)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 90, animation: "fadeIn .2s ease" }} />
+          <div style={{ position: "fixed", top: 0, left: 0, bottom: 0, width: "300px", background: "#111", zIndex: 100, display: "flex", flexDirection: "column", animation: "slideRight .25s cubic-bezier(.16,1,.3,1)" }}>
+            <div style={{ padding: "20px 18px 16px", borderBottom: "1px solid #1a1a1a", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                <div style={{ position: "relative", width: "28px", height: "28px" }}>
+                  <div style={{ position: "absolute", inset: 0, background: "linear-gradient(135deg,#00ff88,#00ccff)", clipPath: "polygon(50% 0%,100% 25%,100% 75%,50% 100%,0% 75%,0% 25%)" }} />
+                  <div style={{ position: "absolute", inset: "4px", background: "#111", clipPath: "polygon(50% 0%,100% 25%,100% 75%,50% 100%,0% 75%,0% 25%)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                    <span style={{ fontFamily: "'Bebas Neue'", fontSize: "10px", color: "#00ff88" }}>Z</span>
+                  </div>
+                </div>
+                <span style={{ fontFamily: "'Bebas Neue'", fontSize: "20px", letterSpacing: ".1em", background: "linear-gradient(90deg,#00ff88,#00ccff)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>ZEIRAX</span>
+              </div>
+              <button onClick={() => setShowSidebar(false)} style={{ background: "none", border: "none", color: "#444", fontSize: "20px", cursor: "pointer" }}>✕</button>
+            </div>
+            <div style={{ padding: "12px 14px", borderBottom: "1px solid #1a1a1a" }}>
+              <button onClick={() => { setMsgs([]); setShowSidebar(false); }} style={{ width: "100%", background: "linear-gradient(135deg,#00ff8815,#00ccff15)", border: "1px solid #00ff8825", color: "#00ff88", fontSize: "14px", fontWeight: "600", padding: "12px", borderRadius: "12px", cursor: "pointer", fontFamily: "'Inter'", display: "flex", alignItems: "center", justifyContent: "center", gap: "8px" }}>
+                ✦ New Research
               </button>
+            </div>
+            <div style={{ padding: "16px 14px 8px" }}>
+              <div style={{ fontSize: "10px", fontWeight: "700", color: "#333", letterSpacing: ".12em", marginBottom: "10px" }}>FEATURES</div>
+              {[
+                { icon: "🔬", label: "Deep Research", sub: "Expert analysis on any topic" },
+                { icon: "⚡", label: "Pro Web Search", sub: "Live sources & citations" },
+                { icon: "🖼️", label: "Image Analysis", sub: "Upload & scan with camera" },
+                { icon: "📄", label: "Report Generator", sub: "Full structured documents" },
+              ].map((f, i) => (
+                <div key={i} style={{ display: "flex", alignItems: "center", gap: "12px", padding: "10px 8px", borderRadius: "10px", cursor: "pointer" }} className="hist-item">
+                  <div style={{ width: "34px", height: "34px", borderRadius: "10px", background: "#1a1a1a", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "16px", flexShrink: 0 }}>{f.icon}</div>
+                  <div>
+                    <div style={{ fontSize: "14px", fontWeight: "600", color: "#ddd" }}>{f.label}</div>
+                    <div style={{ fontSize: "11px", fontWeight: "500", color: "#333" }}>{f.sub}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div style={{ flex: 1, overflow: "auto", padding: "8px 14px 16px", borderTop: "1px solid #1a1a1a" }}>
+              <div style={{ fontSize: "10px", fontWeight: "700", color: "#333", letterSpacing: ".12em", margin: "12px 0 10px" }}>RECENT</div>
+              {history.map((h) => (
+                <div key={h.id} onClick={() => { ask(h.title); setShowSidebar(false); }} style={{ display: "flex", alignItems: "center", gap: "10px", padding: "10px 8px", borderRadius: "10px", cursor: "pointer" }} className="hist-item">
+                  <span style={{ fontSize: "14px" }}>💬</span>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: "13px", fontWeight: "500", color: "#888", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{h.title}</div>
+                    <div style={{ fontSize: "11px", color: "#2a2a2a", marginTop: "1px" }}>{h.time}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div style={{ padding: "14px 16px", borderTop: "1px solid #1a1a1a" }}>
+              <div style={{ fontSize: "11px", fontWeight: "600", color: "#1e1e1e", textAlign: "center" }}>ZEIRAX · AI RESEARCH ENGINE</div>
+            </div>
+          </div>
+        </>
+      )}
+
+      {showPlus && (
+        <>
+          <div onClick={() => setShowPlus(false)} style={{ position: "fixed", inset: 0, zIndex: 40 }} />
+          <div style={{ position: "fixed", bottom: "88px", left: "16px", right: "16px", background: "#141414", border: "1px solid #222", borderRadius: "20px", overflow: "hidden", zIndex: 50, animation: "popIn .2s cubic-bezier(.34,1.56,.64,1)" }}>
+            {[
+              { icon: "📷", title: "Scan with Camera", sub: "Point at anything to research it", action: () => camRef.current?.click() },
+              { icon: "🖼️", title: "Upload Image", sub: "Analyze any image with AI", action: () => imgRef.current?.click() },
+              { icon: "📄", title: "Generate Report", sub: "Full structured research document", action: () => ask("Generate a full research report on the future of artificial intelligence") },
+              { icon: "⚡", title: "Quick Summary", sub: "Fast answers, straight to the point", action: () => ask("Give me a quick insightful summary on how the human brain processes information") },
+            ].map((item, i) => (
+              <div key={i} onClick={() => { setShowPlus(false); item.action(); }} className="action-item" style={{ display: "flex", alignItems: "center", gap: "14px", padding: "15px 18px", borderBottom: i < 3 ? "1px solid #1a1a1a" : "none", cursor: "pointer" }}>
+                <div style={{ width: "40px", height: "40px", borderRadius: "12px", background: "#1e1e1e", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "18px", flexShrink: 0 }}>{item.icon}</div>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: "15px", fontWeight: "600", color: "#eee", marginBottom: "2px" }}>{item.title}</div>
+                  <div style={{ fontSize: "12px", fontWeight: "500", color: "#333" }}>{item.sub}</div>
+                </div>
+                <span style={{ color: "#2a2a2a", fontSize: "18px" }}>›</span>
+              </div>
             ))}
           </div>
-        </header>
-        {mode === "pro" && (
-          <div style={{ background: "#050e0a", border: "1px solid #00ffaa22", padding: "10px 16px", marginBottom: "20px", display: "flex", alignItems: "center", gap: "10px" }}>
-            <span>⚡</span>
-            <span style={{ fontSize: "11px", color: "#00ffaa", letterSpacing: "0.1em" }}>PRO MODE ACTIVE</span>
-            <span style={{ fontSize: "11px", color: "#4a5568" }}>— Real-time web search + verified source citations enabled</span>
-          </div>
-        )}
-        <div style={{ display: "flex", marginBottom: "32px", borderBottom: "1px solid #1a2030" }}>
-          {["research", "history"].map(tab => (
-            <button key={tab} onClick={() => setActiveTab(tab)} style={{ background: "none", border: "none", cursor: "pointer", padding: "10px 20px", fontSize: "10px", letterSpacing: "0.2em", textTransform: "uppercase", color: activeTab === tab ? "#00ffaa" : "#4a5568", borderBottom: activeTab === tab ? "2px solid #00ffaa" : "2px solid transparent", transition: "all 0.2s", fontFamily: "inherit" }}>
-              {tab}{tab === "history" && history.length > 0 && <span style={{ marginLeft: "6px", background: "#1e2a3a", padding: "1px 6px", fontSize: "9px", color: "#6b7a90" }}>{history.length}</span>}
-            </button>
-          ))}
-        </div>
-        {activeTab === "research" && (
-          <>
-            <div style={{ background: "#0d1117", border: `1px solid ${mode === "pro" ? "#00ffaa33" : "#1e2a3a"}`, padding: "24px", marginBottom: "28px", position: "relative" }}>
-              <div style={{ position: "absolute", top: "-1px", left: "24px", background: "#080a0f", padding: "0 8px", fontSize: "9px", letterSpacing: "0.25em", color: mode === "pro" ? "#00ffaa" : "#2d3748" }}>
-                {mode === "pro" ? "⚡ PRO RESEARCH QUERY" : "RESEARCH QUERY"}
-              </div>
-              <textarea ref={textareaRef} value={query} onChange={e => setQuery(e.target.value)} onKeyDown={handleKey} placeholder={mode === "pro" ? "Ask anything — Zeirax will search the web and cite sources..." : "What do you want to understand deeply?"} rows={2} style={{ width: "100%", background: "none", border: "none", outline: "none", color: "#e8e6e0", fontSize: "16px", resize: "none", fontFamily: "'Syne', Georgia, serif", lineHeight: "1.6", boxSizing: "border-box", caretColor: "#00ffaa" }} />
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "16px" }}>
-                <span style={{ fontSize: "10px", color: "#1e2a3a", letterSpacing: "0.1em" }}>⌘ + ENTER</span>
-                <button onClick={() => runResearch()} disabled={loading || !query.trim()} style={{ background: loading ? "#0d1117" : "linear-gradient(135deg, #00ffaa, #00ccff)", border: "none", cursor: loading ? "not-allowed" : "pointer", padding: "10px 28px", fontSize: "11px", letterSpacing: "0.2em", fontFamily: "inherit", color: loading ? "#4a5568" : "#080a0f", fontWeight: "700", transition: "all 0.2s", outline: "none" }}>
-                  {loading ? (mode === "pro" ? "SEARCHING WEB..." : "RESEARCHING...") : (mode === "pro" ? "⚡ PRO RESEARCH →" : "RESEARCH →")}
-                </button>
+        </>
+      )}
+
+      <div style={{ padding: "14px 16px", display: "flex", alignItems: "center", justifyContent: "space-between", borderBottom: "1px solid #1a1a1a" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+          <button onClick={() => setShowSidebar(true)} style={{ background: "none", border: "none", cursor: "pointer", display: "flex", flexDirection: "column", gap: "5px", padding: "4px" }}>
+            <div style={{ width: "22px", height: "2px", background: "#666", borderRadius: "2px" }} />
+            <div style={{ width: "16px", height: "2px", background: "#666", borderRadius: "2px" }} />
+            <div style={{ width: "22px", height: "2px", background: "#666", borderRadius: "2px" }} />
+          </button>
+          <div style={{ display: "flex", alignItems: "center", gap: "9px" }}>
+            <div style={{ position: "relative", width: "28px", height: "28px" }}>
+              <div style={{ position: "absolute", inset: 0, background: "linear-gradient(135deg,#00ff88,#00ccff)", clipPath: "polygon(50% 0%,100% 25%,100% 75%,50% 100%,0% 75%,0% 25%)" }} />
+              <div style={{ position: "absolute", inset: "4px", background: "#0d0d0d", clipPath: "polygon(50% 0%,100% 25%,100% 75%,50% 100%,0% 75%,0% 25%)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                <span style={{ fontFamily: "'Bebas Neue'", fontSize: "10px", color: "#00ff88" }}>Z</span>
               </div>
             </div>
-            {!result && !loading && (
-              <div style={{ marginBottom: "36px" }}>
-                <p style={{ fontSize: "9px", color: "#2d3748", letterSpacing: "0.25em", marginBottom: "12px" }}>SUGGESTED TOPICS</p>
-                <div style={{ display: "flex", flexWrap: "wrap", gap: "8px" }}>
-                  {SUGGESTED.map((s, i) => (
-                    <button key={i} onClick={() => { setQuery(s); runResearch(s); }} style={{ background: "none", border: "1px solid #1e2a3a", color: "#6b7a90", fontSize: "12px", padding: "7px 14px", cursor: "pointer", fontFamily: "inherit", transition: "all 0.2s" }}>{s}</button>
-                  ))}
-                </div>
+            <span style={{ fontFamily: "'Bebas Neue'", fontSize: "21px", letterSpacing: ".1em", background: "linear-gradient(90deg,#00ff88,#00ccff)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>ZEIRAX</span>
+          </div>
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+          <button style={{ background: "none", border: "1px solid #2a2a2a", color: "#aaa", fontSize: "12px", fontWeight: "600", padding: "6px 14px", borderRadius: "20px", cursor: "pointer", fontFamily: "'Inter'" }}>⚡ Go Pro</button>
+          <button onClick={() => setMsgs([])} style={{ width: "34px", height: "34px", borderRadius: "50%", background: "#1a1a1a", border: "none", cursor: "pointer", color: "#555", fontSize: "15px", display: "flex", alignItems: "center", justifyContent: "center" }}>✦</button>
+        </div>
+      </div>
+
+      <div style={{ flex: 1, overflowY: "auto", padding: "20px 16px 12px", display: "flex", flexDirection: "column", gap: "22px" }}>
+        {msgs.length === 0 && (
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", paddingTop: "10px", animation: "fadeUp .5s ease" }}>
+            <div style={{ position: "relative", width: "56px", height: "56px", marginBottom: "16px", animation: "glow 2.5s ease-in-out infinite" }}>
+              <div style={{ position: "absolute", inset: 0, background: "linear-gradient(135deg,#00ff88,#00ccff)", clipPath: "polygon(50% 0%,100% 25%,100% 75%,50% 100%,0% 75%,0% 25%)" }} />
+              <div style={{ position: "absolute", inset: "7px", background: "#0d0d0d", clipPath: "polygon(50% 0%,100% 25%,100% 75%,50% 100%,0% 75%,0% 25%)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                <span style={{ fontFamily: "'Bebas Neue'", fontSize: "16px", color: "#00ff88" }}>Z</span>
               </div>
-            )}
-            {loading && (
-              <div style={{ background: "#0d1117", border: "1px solid #1e2a3a", padding: "48px", textAlign: "center" }}>
-                <div style={{ display: "flex", justifyContent: "center", gap: "5px", marginBottom: "20px" }}>
-                  {[0,1,2,3,4,5,6].map(i => (
-                    <div key={i} style={{ width: "3px", height: "24px", background: mode === "pro" ? "#00ccff" : "#00ffaa", animation: `pulse 0.8s ease-in-out ${i*0.1}s infinite alternate`, borderRadius: "2px" }} />
-                  ))}
-                </div>
-                <p style={{ color: "#00ffaa", fontSize: "10px", letterSpacing: "0.3em", margin: "0 0 8px" }}>{mode === "pro" ? "SEARCHING THE WEB..." : "SYNTHESIZING RESEARCH..."}</p>
-                <p style={{ color: "#2d3748", fontSize: "10px", letterSpacing: "0.15em", margin: 0 }}>{mode === "pro" ? "Finding sources, verifying facts, building citations" : "Analyzing across multiple dimensions"}</p>
-              </div>
-            )}
-            {error && <div style={{ background: "#150a0a", border: "1px solid #3a1e1e", padding: "16px 20px", color: "#ff6b6b", fontSize: "13px" }}>⚠ {error}</div>}
-            {result && !loading && (
-              <div ref={resultRef} style={{ animation: "fadeUp 0.4s ease" }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "14px" }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-                    <div style={{ width: "6px", height: "6px", background: "#00ffaa", borderRadius: "50%" }} />
-                    <span style={{ fontSize: "10px", color: "#00ffaa", letterSpacing: "0.2em" }}>RESEARCH COMPLETE</span>
-                    {mode === "pro" && <span style={{ fontSize: "9px", background: "#00ffaa22", color: "#00ffaa", padding: "2px 8px", letterSpacing: "0.1em" }}>⚡ PRO · WEB SEARCH</span>}
-                  </div>
-                  <button onClick={() => navigator.clipboard?.writeText(result + (sources.length ? "\n\nSources:\n" + sources.join("\n") : ""))} style={{ background: "none", border: "1px solid #1e2a3a", color: "#4a5568", fontSize: "10px", letterSpacing: "0.15em", padding: "5px 12px", cursor: "pointer", fontFamily: "inherit" }}>COPY REPORT</button>
-                </div>
-                <div style={{ background: "#0d1117", border: "1px solid #1e2a3a", padding: "32px" }}>
-                  <div style={{ marginBottom: "20px", paddingBottom: "16px", borderBottom: "1px solid #1a2030", fontSize: "14px", color: "#6b7a90", fontFamily: "'Syne', Georgia, serif", fontStyle: "italic" }}>{query}</div>
-                  <div className="res" dangerouslySetInnerHTML={{ __html: parseMarkdown(result) }} />
-                  {sources.length > 0 && (
-                    <div style={{ marginTop: "32px", borderTop: "1px solid #1a2030", paddingTop: "24px" }}>
-                      <div style={{ fontSize: "10px", color: "#00ffaa", letterSpacing: "0.25em", marginBottom: "16px" }}>◈ SOURCES ({sources.length})</div>
-                      {sources.map((s, i) => (
-                        <div key={i} style={{ display: "flex", gap: "12px", padding: "10px 0", borderBottom: "1px solid #0d1520", alignItems: "flex-start" }}>
-                          <span style={{ fontSize: "9px", color: "#2d3748", minWidth: "20px", paddingTop: "2px" }}>{String(i+1).padStart(2,"0")}</span>
-                          <span style={{ fontSize: "12px", color: "#8899aa", lineHeight: "1.6" }}>{s}</span>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </div>
-            )}
-          </>
-        )}
-        {activeTab === "history" && (
-          <div>
-            {history.length === 0 ? (
-              <div style={{ textAlign: "center", padding: "80px 0", color: "#2d3748", fontSize: "13px", letterSpacing: "0.15em" }}>NO RESEARCH SESSIONS YET</div>
-            ) : (
-              <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
-                {history.map((item, i) => (
-                  <div key={i} style={{ background: "#0d1117", border: "1px solid #1e2a3a", padding: "18px 20px", cursor: "pointer" }}
-                    onClick={() => { setQuery(item.query); setResult(item.result); setSources(item.sources || []); setMode(item.mode === "PRO" ? "pro" : "free"); setActiveTab("research"); }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "12px" }}>
-                      <div style={{ fontSize: "13px", color: "#e8e6e0", fontFamily: "'Syne', Georgia, serif" }}>{item.query}</div>
-                      {item.mode === "PRO" && <span style={{ fontSize: "9px", background: "#00ffaa15", color: "#00ffaa", padding: "2px 7px" }}>⚡ PRO</span>}
-                    </div>
-                    <div style={{ fontSize: "10px", color: "#2d3748", letterSpacing: "0.1em", marginTop: "8px" }}>
-                      {item.time.toLocaleTimeString()} · {item.result.length} chars{item.sources?.length ? ` · ${item.sources.length} sources` : ""}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
+            </div>
+            <div style={{ fontSize: "24px", fontWeight: "800", color: "#fff", textAlign: "center", marginBottom: "4px", letterSpacing: "-.3px" }}>
+              Welcome, <span style={{ background: "linear-gradient(90deg,#00ff88,#00ccff)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>Moe</span> 👋
+            </div>
+            <div style={{ fontSize: "14px", fontWeight: "500", color: "#3a3a3a", textAlign: "center", marginBottom: "28px" }}>What do you want to research today?</div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: "8px", justifyContent: "center" }}>
+              {CHIPS.map((c, i) => (
+                <button key={i} className="chip" onClick={() => ask(c)} style={{ background: "#1a1a1a", border: "1px solid #222", color: "#888", fontSize: "13px", fontWeight: "500", padding: "9px 16px", borderRadius: "20px", cursor: "pointer", fontFamily: "'Inter'", transition: "all .15s" }}>{c}</button>
+              ))}
+            </div>
           </div>
         )}
+
+        {msgs.map((m) => (
+          <div key={m.id} className="msg">
+            {m.r === "u" && (
+              <div style={{ display: "flex", justifyContent: "flex-end" }}>
+                <div>
+                  <div contentEditable suppressContentEditableWarning className="u-bub" style={{ background: "#1e1e1e", border: "1px solid #282828", padding: "13px 17px", maxWidth: "84%", fontSize: "15px", fontWeight: "500", color: "#f0f0f0", lineHeight: "1.65", borderRadius: "20px 20px 5px 20px", cursor: "text", wordBreak: "break-word", display: "inline-block" }}>{m.c}</div>
+                  <div style={{ fontSize: "10px", fontWeight: "600", color: "#222", textAlign: "right", marginTop: "4px" }}>Tap to edit</div>
+                </div>
+              </div>
+            )}
+            {m.r === "img" && (
+              <div style={{ display: "flex", justifyContent: "flex-end" }}>
+                <div style={{ border: "1px solid #282828", padding: "5px", maxWidth: "68%", borderRadius: "16px", overflow: "hidden" }}>
+                  <img src={m.c} style={{ width: "100%", display: "block", borderRadius: "12px" }} alt="uploaded" />
+                </div>
+              </div>
+            )}
+            {m.r === "a" && (
+              <div style={{ display: "flex", gap: "12px", alignItems: "flex-start" }}>
+                <div style={{ position: "relative", width: "28px", height: "28px", flexShrink: 0, marginTop: "2px" }}>
+                  <div style={{ position: "absolute", inset: 0, background: "linear-gradient(135deg,#00ff88,#00ccff)", clipPath: "polygon(50% 0%,100% 25%,100% 75%,50% 100%,0% 75%,0% 25%)" }} />
+                  <div style={{ position: "absolute", inset: "4px", background: "#0d0d0d", clipPath: "polygon(50% 0%,100% 25%,100% 75%,50% 100%,0% 75%,0% 25%)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                    <span style={{ fontFamily: "'Bebas Neue'", fontSize: "9px", color: "#00ff88" }}>Z</span>
+                  </div>
+                </div>
+                <div style={{ flex: 1 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "10px" }}>
+                    <span style={{ fontSize: "14px", fontWeight: "700", color: "#fff" }}>Zeirax</span>
+                    <span style={{ fontSize: "10px", fontWeight: "600", color: "#00ff88", background: "#00ff8815", border: "1px solid #00ff8825", padding: "2px 8px", borderRadius: "10px" }}>AI</span>
+                  </div>
+                  <div className="ai-text" dangerouslySetInnerHTML={{ __html: renderMd(m.c) }} />
+                  <div style={{ display: "flex", gap: "6px", marginTop: "12px" }}>
+                    <button onClick={() => copyText(m.c)} style={{ background: "none", border: "1px solid #1e1e1e", color: "#444", fontSize: "12px", fontWeight: "600", padding: "6px 14px", borderRadius: "8px", cursor: "pointer", fontFamily: "'Inter'" }}>Copy</button>
+                    <button style={{ background: "none", border: "1px solid #1e1e1e", color: "#444", fontSize: "12px", fontWeight: "600", padding: "6px 14px", borderRadius: "8px", cursor: "pointer", fontFamily: "'Inter'" }}>Share</button>
+                  </div>
+                </div>
+              </div>
+            )}
+            {m.r === "e" && (
+              <div style={{ background: "#100808", border: "1px solid #2a1010", padding: "12px 16px", borderRadius: "8px", color: "#ff5555", fontSize: "14px" }}>⚠ {m.c}</div>
+            )}
+          </div>
+        ))}
+
+        {busy && (
+          <div className="msg" style={{ display: "flex", gap: "12px", alignItems: "flex-start" }}>
+            <div style={{ position: "relative", width: "28px", height: "28px", flexShrink: 0, marginTop: "2px" }}>
+              <div style={{ position: "absolute", inset: 0, background: "linear-gradient(135deg,#00ff88,#00ccff)", clipPath: "polygon(50% 0%,100% 25%,100% 75%,50% 100%,0% 75%,0% 25%)" }} />
+              <div style={{ position: "absolute", inset: "4px", background: "#0d0d0d", clipPath: "polygon(50% 0%,100% 25%,100% 75%,50% 100%,0% 75%,0% 25%)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                <span style={{ fontFamily: "'Bebas Neue'", fontSize: "9px", color: "#00ff88" }}>Z</span>
+              </div>
+            </div>
+            <div style={{ flex: 1 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "10px" }}>
+                <span style={{ fontSize: "14px", fontWeight: "700", color: "#fff" }}>Zeirax</span>
+                <span style={{ fontSize: "10px", fontWeight: "600", color: "#00ff88", background: "#00ff8815", border: "1px solid #00ff8825", padding: "2px 8px", borderRadius: "10px" }}>AI</span>
+              </div>
+              <div style={{ display: "flex", gap: "6px", alignItems: "center", padding: "4px 0" }}>
+                {[0, 1, 2].map(i => (
+                  <div key={i} style={{ width: "7px", height: "7px", borderRadius: "50%", background: "#00ff88", animation: `dot 1.2s ease-in-out ${i * 0.2}s infinite` }} />
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+
+        <div ref={bottomRef} />
       </div>
-      <div style={{ position: "fixed", bottom: 0, left: 0, right: 0, borderTop: "1px solid #0d1117", background: "rgba(8,10,15,0.96)", padding: "10px 24px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        <span style={{ fontSize: "9px", color: "#1e2a3a", letterSpacing: "0.2em" }}>ZEIRAX · FOUNDED BY MOE · 2026</span>
-        <span style={{ fontSize: "9px", color: mode === "pro" ? "#00ffaa" : "#1e2a3a", letterSpacing: "0.15em" }}>{mode === "pro" ? "⚡ PRO MODE" : "FREE MODE"}</span>
+
+      <div style={{ padding: "10px 14px 22px", background: "#0d0d0d", borderTop: "1px solid #141414" }}>
+        <div style={{ display: "flex", alignItems: "flex-end", gap: "8px" }}>
+          <button onClick={() => setShowPlus(p => !p)} style={{ width: "36px", height: "36px", borderRadius: "50%", background: showPlus ? "#00ff8820" : "#1a1a1a", border: showPlus ? "1px solid #00ff8840" : "none", cursor: "pointer", color: showPlus ? "#00ff88" : "#fff", fontSize: "22px", fontWeight: "300", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, transition: "all .2s" }}>+</button>
+          <div style={{ flex: 1, display: "flex", alignItems: "flex-end", gap: "8px", background: "#1a1a1a", borderRadius: "24px", padding: "10px 10px 10px 16px" }}>
+            <textarea
+              ref={taRef}
+              value={input}
+              onChange={e => setInput(e.target.value)}
+              onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); ask(); } }}
+              placeholder="Ask anything..."
+              rows={1}
+              style={{ flex: 1, background: "none", border: "none", outline: "none", color: "#fff", fontSize: "15px", fontWeight: "400", resize: "none", fontFamily: "'Inter',sans-serif", lineHeight: "1.5", caretColor: "#00ff88", maxHeight: "100px", overflow: "auto" }}
+              onInput={e => { e.target.style.height = "auto"; e.target.style.height = Math.min(e.target.scrollHeight, 100) + "px"; }}
+            />
+            <button onClick={() => ask()} disabled={busy || !input.trim()} style={{ width: "34px", height: "34px", flexShrink: 0, background: busy || !input.trim() ? "#222" : "linear-gradient(135deg,#00ff88,#00ccff)", border: "none", borderRadius: "50%", cursor: busy || !input.trim() ? "not-allowed" : "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "16px", color: busy || !input.trim() ? "#333" : "#000", fontWeight: "800", transition: "all .2s" }}>↑</button>
+          </div>
+        </div>
+        <div style={{ textAlign: "center", marginTop: "8px", fontSize: "10px", fontWeight: "600", color: "#161616", letterSpacing: ".04em" }}>ZEIRAX · AI RESEARCH ENGINE</div>
       </div>
+
+      <input ref={camRef} type="file" accept="image/*" capture="environment" style={{ display: "none" }} onChange={handleImg} />
+      <input ref={imgRef} type="file" accept="image/*" style={{ display: "none" }} onChange={handleImg} />
     </div>
   );
   }
