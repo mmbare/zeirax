@@ -357,7 +357,7 @@ export default function App() {
             <button onClick={() => ask()} disabled={busy || !input.trim()} style={{ width: "34px", height: "34px", flexShrink: 0, background: busy || !input.trim() ? "#222" : "linear-gradient(135deg,#00ff88,#00ccff)", border: "none", borderRadius: "50%", cursor: busy || !input.trim() ? "not-allowed" : "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "16px", color: busy || !input.trim() ? "#333" : "#000", fontWeight: "800", transition: "all .2s" }}>↑</button>
           </div>
         </div>
-        <div style={{ textAlign: "center", marginTop: "8px", fontSize: "10px", fontWeight: "600", color: "#161616", letterSpacing: ".04em" }}>ZEIRAX · AI MENTOR</div>
+        <div style={{ textAlign: "center", marginTop: "8px", fontSize: "10px", fontWeight: "600", color: "#161616", letterSpacing: ".04em" }}>ZEIRAX · AI MENTOR </div>
       </div>
 
       <input ref={camRef} type="file" accept="image/*" capture="environment" style={{ display: "none" }} onChange={handleImg} />
